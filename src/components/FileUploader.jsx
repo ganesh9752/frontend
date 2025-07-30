@@ -1,53 +1,62 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
-  Button,
-  LinearProgress,
   Box,
   Typography,
   IconButton,
+  LinearProgress,
   CircularProgress,
+  Alert,
 } from "@mui/material";
+import FileUploadOutlinedIcon from "@mui/icons-material/FileUploadOutlined";
+import HourglassTopIcon from "@mui/icons-material/HourglassTop";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
-import FileUploadOutlinedIcon from "@mui/icons-material/FileUploadOutlined";
 
 export default function FileUploader() {
   const [isUploading, setIsUploading] = useState(false);
   const [percent, setPercent] = useState(0);
-  const progressTimerRef = useRef(null);
-
-  const navigate = useNavigate();
+  const [uploadFinished, setUploadFinished] = useState(false);
+  const [responseReceived, setResponseReceived] = useState(false);
+  const [fileInfo, setFileInfo] = useState(null);
   const [error, setError] = useState("");
   const [errorCode, setErrorCode] = useState("");
 
-  const handleFileUpload = (file) => {
-    if (file.error) {
-      setError(file.error);
-      setErrorCode(file.error_code || "");
-    } else {
-      setError("");
-      setErrorCode("");
-      navigate(`/chat/${file.fileId}`);
+  const navigate = useNavigate();
+  const progressTimerRef = useRef(null);
+  const progressValueRef = useRef(0);
+
+  useEffect(() => {
+    if (uploadFinished && responseReceived && fileInfo) {
+      setTimeout(() => {
+        navigate(`/chat/${fileInfo.fileId}`);
+      }, 500); 
     }
-  };
+  }, [uploadFinished, responseReceived, fileInfo, navigate]);
 
   const startSimulatedProgress = () => {
     let progress = 0;
+    progressValueRef.current = 0;
     progressTimerRef.current = setInterval(() => {
       progress += 1;
+      progressValueRef.current = progress;
       setPercent(progress);
       if (progress >= 95) {
         clearInterval(progressTimerRef.current);
+        slowProgressTo100();
       }
     }, 100);
   };
 
-  const completeProgress = () => {
-    clearInterval(progressTimerRef.current);
-    setPercent(100);
-    setTimeout(() => {
-      setIsUploading(false);
-    }, 500); 
+  const slowProgressTo100 = () => {
+    progressTimerRef.current = setInterval(() => {
+      if (progressValueRef.current < 100) {
+        progressValueRef.current += 1;
+        setPercent(progressValueRef.current);
+      } else {
+        clearInterval(progressTimerRef.current);
+        setUploadFinished(true);
+      }
+    }, 300);
   };
 
   const handleChange = async (e) => {
@@ -59,6 +68,12 @@ export default function FileUploader() {
 
     setIsUploading(true);
     setPercent(0);
+    setError("");
+    setErrorCode("");
+    setUploadFinished(false);
+    setResponseReceived(false);
+    setFileInfo(null);
+
     startSimulatedProgress();
 
     try {
@@ -74,25 +89,22 @@ export default function FileUploader() {
 
       if (res.data?.status === "SUCCESS") {
         const fileId = res.data.fileId || Date.now();
-        handleFileUpload({ name: file.name, fileId, ...res.data });
+        setFileInfo({ name: file.name, fileId, ...res.data });
+        setResponseReceived(true);
       } else {
         throw new Error(res.data.error_message || "Upload failed");
       }
-
-      completeProgress();
     } catch (err) {
       clearInterval(progressTimerRef.current);
       console.error("Upload failed", err);
-      alert("Upload failed: " + (err.response?.data?.error || err.message));
-      handleFileUpload({ name: file.name, error: err.message });
+      setError(err.message);
+      setErrorCode(err.response?.data?.error_code || "");
       setIsUploading(false);
     }
   };
 
   useEffect(() => {
-    return () => {
-      clearInterval(progressTimerRef.current);
-    };
+    return () => clearInterval(progressTimerRef.current);
   }, []);
 
   return (
@@ -126,60 +138,66 @@ export default function FileUploader() {
             textAlign: "center",
           }}
         >
-          <Box>
-            {!isUploading ? (
-              <>
-                <input
-                  type="file"
-                  accept=".pdf,.docx"
-                  style={{ display: "none" }}
-                  id="file-upload"
-                  onChange={handleChange}
-                  disabled={isUploading}
-                />
-                <label htmlFor="file-upload">
-                  <IconButton component="span" disabled={isUploading}>
-                    <FileUploadOutlinedIcon
-                      size="large"
-                      sx={{
-                        backgroundColor: "#f5f5f5",
-                        borderRadius: "50%",
-                        padding: "8px",
-                        color: "#800080",
-                        width: "35px",
-                        height: "35px",
-                      }}
-                    />
-                  </IconButton>
-                </label>
-                <Typography variant="h5" gutterBottom sx={{ mt: 2 }}>
-                  Upload PDF to start chatting
-                </Typography>
-              </>
-            ) : (
-              <Box sx={{ textAlign: "start"}}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems : "center" }}>
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: "semi-bold" }}>
-                      <CircularProgress size={20} width={2} rounded sx={{color: "#800080" }} /> 
-                    </Typography>
-                    <Typography variant="h6" gutterBottom sx={{ fontWeight: "semi-bold" }}>
-                       Uploading PDF
-                    </Typography>
-                    </Box>
-                  <Typography variant="h6" gutterBottom sx={{ fontWeight: "semi-bold" }}>
-                    {percent}%
+          {!isUploading ? (
+            <>
+              <input
+                type="file"
+                accept=".pdf,.docx"
+                style={{ display: "none" }}
+                id="file-upload"
+                onChange={handleChange}
+              />
+              <label htmlFor="file-upload">
+                <IconButton component="span">
+                  <FileUploadOutlinedIcon
+                    sx={{
+                      backgroundColor: "#f5f5f5",
+                      borderRadius: "50%",
+                      padding: "8px",
+                      color: "#800080",
+                      width: "35px",
+                      height: "35px",
+                    }}
+                  />
+                </IconButton>
+              </label>
+              <Typography variant="h5" gutterBottom sx={{ mt: 2 }}>
+                Upload PDF to start chatting
+              </Typography>
+            </>
+          ) : (
+            <Box sx={{ textAlign: "start" }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                  {uploadFinished && !responseReceived ? (
+                    <HourglassTopIcon sx={{ color: "#800080" }} />
+                  ) : (
+                    <CircularProgress size={20} sx={{ color: "#800080" }} />
+                  )}
+                  <Typography variant="h6" sx={{ fontWeight: "semi-bold" }}>
+                    {uploadFinished && !responseReceived
+                      ? "Finalizing..."
+                      : "Uploading PDF"}
                   </Typography>
                 </Box>
-                <LinearProgress
-                  variant="determinate"
-                  color="secondary"
-                  value={percent}
-                  sx={{ height: 8, borderRadius: 4 , color: "#800080" }}
-                />
+                <Typography variant="h6" sx={{ fontWeight: "semi-bold" }}>
+                  {percent}%
+                </Typography>
               </Box>
-            )}
-          </Box>
+              <LinearProgress
+                variant="determinate"
+                color="secondary"
+                value={percent}
+                sx={{ height: 8, borderRadius: 4, mt: 1 }}
+              />
+            </Box>
+          )}
         </Box>
       </Box>
     </>
